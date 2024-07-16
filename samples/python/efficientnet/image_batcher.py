@@ -125,7 +125,13 @@ class ImageBatcher:
         :param image_path: The path to the image on disk to load.
         :return: A numpy array holding the image sample, ready to be contacatenated into the rest of the batch.
         """
-
+        def make_square(im, fill_color=(0, 0, 0, 0)):
+            x, y = im.size
+            size = max(x, y)
+            new_im = Image.new(im.mode, (size, size), fill_color)
+            new_im.paste(im, (int((size - x) / 2), int((size - y) / 2)))
+            return new_im
+            
         def pad_crop(image):
             """
             A subroutine to implement padded cropping. This will create a center crop of the image, padded by 32 pixels.
@@ -143,14 +149,19 @@ class ImageBatcher:
 
         image = Image.open(image_path)
         image = image.convert(mode="RGB")
+        
         if self.preprocessor == "V2":
-            # For EfficientNet V2: Bilinear Resize and [-1,+1] Normalization
-            if self.height < 320:
-                # Padded crop only on smaller sizes
-                image = pad_crop(image)
-            image = image.resize((self.width, self.height), resample=Image.BILINEAR)
+
+            imgage = make_square(image)
+            image = image.resize((256, 256), resample=Image.BILINEAR)
             image = np.asarray(image, dtype=self.dtype)
-            image = (image - 128.0) / 128.0
+            
+            mean = np.array([0.485, 0.456, 0.406])
+            offs = np.array([0.229, 0.224, 0.225])
+            
+            image = (image / 255.0-mean)/offs
+            
+            
         elif self.preprocessor == "V1":
             # For EfficientNet V1: Padded Crop, Bicubic Resize, and [0,1] Normalization
             # (Mean subtraction and Std Dev scaling will be part of the graph, so not done here)
