@@ -50,7 +50,7 @@ class ImageBatcher:
         input = os.path.realpath(input)
         self.images = []
 
-        extensions = [".jpg", ".jpeg", ".png", ".bmp"]
+        extensions = [".jpg", ".jpeg", ".png", ".bmp",".tif"]
 
         def is_image(path):
             return (
