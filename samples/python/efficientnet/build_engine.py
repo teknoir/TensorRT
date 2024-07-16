@@ -149,8 +149,8 @@ class EngineBuilder:
         Parse the ONNX graph and create the corresponding TensorRT network definition.
         :param onnx_path: The path to the ONNX graph to load.
         """
-
-        self.network = self.builder.create_network(0)
+        EXPLICIT_BATCH = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        self.network = self.builder.create_network(EXPLICIT_BATCH)
         self.parser = trt.OnnxParser(self.network, self.trt_logger)
 
         onnx_path = os.path.realpath(onnx_path)
@@ -178,7 +178,7 @@ class EngineBuilder:
                     output.name, output.shape, output.dtype
                 )
             )
-        assert self.batch_size > 0
+        #assert self.batch_size > 0
 
     def create_engine(
         self,
@@ -219,8 +219,10 @@ class EngineBuilder:
             if not self.builder.platform_has_fast_int8:
                 log.warning("INT8 is not supported natively on this platform/device")
             else:
+                log.info("setting up calibrator")
                 self.config.set_flag(trt.BuilderFlag.INT8)
                 self.config.int8_calibrator = EngineCalibrator(calib_cache)
+                log.info("readinf from calib-cache {:}".format(calib_cache))
                 if not os.path.exists(calib_cache):
                     calib_shape = [calib_batch_size] + list(inputs[0].shape[1:])
                     calib_dtype = trt.nptype(inputs[0].dtype)
@@ -234,7 +236,16 @@ class EngineBuilder:
                             preprocessor=calib_preprocessor,
                         )
                     )
-
+                else:
+                    calib_shape = [-1] + list(inputs[0].shape[1:])
+                    calib_dtype = trt.nptype(inputs[0].dtype)
+        log.info("setting up serialized network")
+        profile = self.builder.create_optimization_profile();
+        profile
+        profile.set_shape("Input",(1,calib_shape[1], calib_shape[2], calib_shape[3])
+                                 ,(5,calib_shape[1], calib_shape[2], calib_shape[3])
+                                 ,(20,calib_shape[1], calib_shape[2], calib_shape[3])) 
+        self.config.add_optimization_profile(profile)
         engine_bytes = self.builder.build_serialized_network(self.network, self.config)
         if engine_bytes is None:
             log.error("Failed to create engine")
