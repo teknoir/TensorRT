@@ -1,4 +1,3 @@
-#
 # SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -184,6 +183,8 @@ class EngineBuilder:
         self,
         engine_path,
         precision,
+        use_dla=False,  # Add this argument to enable DLA
+        dla_core=0,     # Add this argument to specify which DLA core to use
         calib_input=None,
         calib_cache=None,
         calib_num_images=25000,
@@ -194,6 +195,8 @@ class EngineBuilder:
         Build the TensorRT engine and serialize it to disk.
         :param engine_path: The path where to serialize the engine to.
         :param precision: The datatype to use for the engine, either 'fp32', 'fp16' or 'int8'.
+        :param use_dla: Whether to enable DLA, default: False.
+        :param dla_core: The DLA core to use, default: 0.
         :param calib_input: The path to a directory holding the calibration images.
         :param calib_cache: The path where to write the calibration cache to, or if it already exists, load it from.
         :param calib_num_images: The maximum number of images to use for calibration.
@@ -239,12 +242,21 @@ class EngineBuilder:
                 else:
                     calib_shape = [-1] + list(inputs[0].shape[1:])
                     calib_dtype = trt.nptype(inputs[0].dtype)
+    
+        if use_dla:
+            if self.builder.num_DLA_cores == 0:
+                log.warning("DLA is not supported on this platform/device")
+            else:
+                log.info("Enabling DLA with core {}".format(dla_core))
+                self.config.default_device_type = trt.DeviceType.DLA
+                self.config.DLA_core = dla_core
+                self.config.set_flag(trt.BuilderFlag.GPU_FALLBACK)
+        
         log.info("setting up serialized network")
-        profile = self.builder.create_optimization_profile();
-        profile
-        profile.set_shape("Input",(1,calib_shape[1], calib_shape[2], calib_shape[3])
-                                 ,(5,calib_shape[1], calib_shape[2], calib_shape[3])
-                                 ,(20,calib_shape[1], calib_shape[2], calib_shape[3])) 
+        profile = self.builder.create_optimization_profile()
+        profile.set_shape("Input", (1, calib_shape[1], calib_shape[2], calib_shape[3]),
+                          (5, calib_shape[1], calib_shape[2], calib_shape[3]),
+                          (20, calib_shape[1], calib_shape[2], calib_shape[3]))
         self.config.add_optimization_profile(profile)
         engine_bytes = self.builder.build_serialized_network(self.network, self.config)
         if engine_bytes is None:
@@ -265,11 +277,13 @@ def main(args):
     builder.create_engine(
         args.engine,
         args.precision,
-        args.calib_input,
-        args.calib_cache,
-        args.calib_num_images,
-        args.calib_batch_size,
-        args.calib_preprocessor,
+        use_dla=args.use_dla,
+        dla_core=args.dla_core,
+        calib_input=args.calib_input,
+        calib_cache=args.calib_cache,
+        calib_num_images=args.calib_num_images,
+        calib_batch_size=args.calib_batch_size,
+        calib_preprocessor=args.calib_preprocessor,
     )
 
 
@@ -317,6 +331,12 @@ if __name__ == "__main__":
         "--timing_cache",
         default="./timing.cache",
         help="The file path for timing cache, default: ./timing.cache",
+    )
+    parser.add_argument(
+        "--use_dla", action="store_true", help="Enable DLA for inference"
+    )
+    parser.add_argument(
+        "--dla_core", default=0, type=int, help="Specify the DLA core to use, default: 0"
     )
     args = parser.parse_args()
     if not all([args.onnx, args.engine]):
